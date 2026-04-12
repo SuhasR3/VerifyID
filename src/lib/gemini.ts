@@ -291,13 +291,55 @@ async function fileToBase64(file: File): Promise<{ base64: string; mimeType: str
   return { base64, mimeType };
 }
 
+// ─── API key management with fallback ────────────────────────────────────────
+function getApiKeys(): string[] {
+  const keys: string[] = [];
+  if (process.env.GEMINI_API_KEY) keys.push(process.env.GEMINI_API_KEY);
+  if (process.env.GEMINI_API_KEY_FALLBACK) keys.push(process.env.GEMINI_API_KEY_FALLBACK);
+  return keys;
+}
+
+function createModel(apiKey: string) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: {
+      temperature: 0,
+      topK: 1,
+      responseMimeType: "application/json",
+    },
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function callWithFallback(keys: string[], fn: (model: any) => Promise<any>): Promise<any> {
+  let lastError: Error | null = null;
+  for (const key of keys) {
+    try {
+      const model = createModel(key);
+      return await fn(model);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const msg = lastError.message;
+      // Only fallback on rate limit errors — not on other failures
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("rate")) {
+        console.warn(`Rate limited on key ...${key.slice(-4)}, trying fallback`);
+        continue;
+      }
+      throw lastError; // Non-rate-limit error, don't retry
+    }
+  }
+  // All keys exhausted
+  throw new Error("Rate limit exceeded on all API keys. Please try again in a minute.");
+}
+
 // ─── Main verify function: 2-step pipeline ───────────────────────────────────
 export async function verifyID(
   idImageFile: File,
   secondDocFile?: File | null
 ): Promise<VerificationResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+  const keys = getApiKeys();
+  if (keys.length === 0) throw new Error("No Gemini API key configured. Set GEMINI_API_KEY in environment.");
 
   const idImage = await fileToBase64(idImageFile);
   const hasSecondDocument = !!secondDocFile;
@@ -307,22 +349,12 @@ export async function verifyID(
   const cached = resultCache.get(cacheKey);
   if (cached) return cached;
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-
-  // Deterministic config — temperature 0, topK 1, JSON output
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
-    generationConfig: {
-      temperature: 0,
-      topK: 1,
-      responseMimeType: "application/json",
-    },
-  });
-
   const idImagePart = { inlineData: { data: idImage.base64, mimeType: idImage.mimeType } };
 
-  // ── STEP 1: Classify document ──
-  const classifyResult = await model.generateContent([CLASSIFY_PROMPT, idImagePart]);
+  // ── STEP 1: Classify document (with fallback) ──
+  const classifyResult = await callWithFallback(keys, (model) =>
+    model.generateContent([CLASSIFY_PROMPT, idImagePart])
+  );
   const classText = classifyResult.response.text();
   let classification: Record<string, unknown>;
   try {
@@ -361,7 +393,9 @@ export async function verifyID(
   const analysisPrompt = buildAnalysisPrompt(classification, hasSecondDocument) +
     `\n\n${hasSecondDocument ? "First image = primary ID. Second image = supporting document for cross-verification." : "Analyze the ID in this image."}`;
 
-  const analysisResult = await model.generateContent([analysisPrompt, ...imageParts]);
+  const analysisResult = await callWithFallback(keys, (model) =>
+    model.generateContent([analysisPrompt, ...imageParts])
+  );
   const analysisText = analysisResult.response.text();
 
   let parsed: Record<string, unknown>;
