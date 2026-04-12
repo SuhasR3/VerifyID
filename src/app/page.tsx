@@ -1,40 +1,79 @@
 "use client";
 
-import { useState, useId } from "react";
+import { useState, useId, useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import UploadZone from "@/components/UploadZone";
 import ScanAnimation from "@/components/ScanAnimation";
 import VerificationResultCard from "@/components/VerificationResult";
 import { VerificationResult } from "@/lib/types";
 
-const FaceMatch = dynamic(() => import("@/components/FaceMatch"), { ssr: false });
+const FaceMatchInline = dynamic(() => import("@/components/FaceMatchInline"), { ssr: false });
 
-type AppState = "upload" | "scanning" | "result" | "error";
+type AppState = "upload" | "selfie-capture" | "scanning" | "result" | "error";
+
+interface FaceResult {
+  match: boolean;
+  distance: number;
+  confidence: number;
+  selfieDataUrl: string;
+}
 
 export default function Home() {
   const [state, setState] = useState<AppState>("upload");
   const [idFile, setIdFile] = useState<File | null>(null);
   const [secondFile, setSecondFile] = useState<File | null>(null);
   const [result, setResult] = useState<VerificationResult | null>(null);
+  const [faceResult, setFaceResult] = useState<FaceResult | null>(null);
   const [showFaceMatch, setShowFaceMatch] = useState(false);
   const [error, setError] = useState<string>("");
   const [showCrossDoc, setShowCrossDoc] = useState(false);
+  const selfieFileRef = useRef<Blob | null>(null);
   const uid = useId();
 
-  async function handleVerify() {
+  function handleVerifyClick() {
     if (!idFile) return;
+    if (showFaceMatch) {
+      // Go to selfie capture first
+      setState("selfie-capture");
+    } else {
+      startVerification();
+    }
+  }
+
+  function handleSelfieCaptured(dataUrl: string, blob: Blob) {
+    selfieFileRef.current = blob;
+    // Now start the actual verification + face comparison in parallel
+    startVerification(dataUrl);
+  }
+
+  async function startVerification(selfieDataUrl?: string) {
     setState("scanning");
     setError("");
     try {
+      // Start ID verification
       const formData = new FormData();
-      formData.append("idImage", idFile);
+      formData.append("idImage", idFile!);
       if (secondFile && showCrossDoc) formData.append("secondDocument", secondFile);
-      const res = await fetch("/api/verify", { method: "POST", body: formData });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || errData.detail || "Verification failed");
+
+      const verifyPromise = fetch("/api/verify", { method: "POST", body: formData })
+        .then(async (res) => {
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error || errData.detail || "Verification failed");
+          }
+          return res.json();
+        });
+
+      // Start face comparison in parallel if selfie was captured
+      let facePromise: Promise<FaceResult | null> = Promise.resolve(null);
+      if (selfieDataUrl && showFaceMatch && idFile) {
+        facePromise = runFaceComparison(idFile, selfieDataUrl);
       }
-      setResult(await res.json());
+
+      const [verifyResult, faceMatchResult] = await Promise.all([verifyPromise, facePromise]);
+
+      setResult(verifyResult);
+      setFaceResult(faceMatchResult);
       setState("result");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -42,13 +81,54 @@ export default function Home() {
     }
   }
 
+  async function runFaceComparison(idImageFile: File, selfieDataUrl: string): Promise<FaceResult> {
+    const faceapi = await import("face-api.js");
+    await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
+    await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
+    await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
+
+    // ID face
+    const idUrl = URL.createObjectURL(idImageFile);
+    const idImg = await faceapi.fetchImage(idUrl);
+    const idDetection = await faceapi
+      .detectSingleFace(idImg, new faceapi.TinyFaceDetectorOptions())
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    URL.revokeObjectURL(idUrl);
+
+    if (!idDetection) {
+      return { match: false, distance: 1, confidence: 0, selfieDataUrl };
+    }
+
+    // Selfie face
+    const selfieImg = await faceapi.fetchImage(selfieDataUrl);
+    const selfieDetection = await faceapi
+      .detectSingleFace(selfieImg, new faceapi.TinyFaceDetectorOptions())
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!selfieDetection) {
+      return { match: false, distance: 1, confidence: 0, selfieDataUrl };
+    }
+
+    const distance = faceapi.euclideanDistance(idDetection.descriptor, selfieDetection.descriptor);
+    return {
+      match: distance < 0.5,
+      distance: Math.round(distance * 1000) / 1000,
+      confidence: Math.max(0, Math.min(1, 1 - distance)),
+      selfieDataUrl,
+    };
+  }
+
   function handleReset() {
-    setState("upload"); setIdFile(null); setSecondFile(null); setResult(null); setError(""); setShowCrossDoc(false); setShowFaceMatch(false);
+    setState("upload"); setIdFile(null); setSecondFile(null); setResult(null);
+    setFaceResult(null); setError(""); setShowCrossDoc(false); setShowFaceMatch(false);
+    selfieFileRef.current = null;
   }
 
   return (
     <div className="min-h-screen" style={{ background: "#f8fafc" }}>
-      {/* ── Header ── */}
+      {/* Header */}
       <header className="sticky top-0 z-50" style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
         <div className="max-w-[1100px] mx-auto px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -67,6 +147,8 @@ export default function Home() {
       </header>
 
       <main className="max-w-[1100px] mx-auto px-5 py-8">
+
+        {/* ── UPLOAD ── */}
         {state === "upload" && (
           <div className="max-w-lg mx-auto animate-fade-in-up">
             <div className="text-center mb-8">
@@ -77,49 +159,42 @@ export default function Home() {
               <UploadZone label="Upload Primary ID" onFile={setIdFile} file={idFile} />
               <div className="flex items-center justify-between">
                 <label htmlFor={uid} className="text-sm font-medium" style={{ color: "#334155" }}>Cross-document matching</label>
-                <button id={uid} onClick={() => setShowCrossDoc(!showCrossDoc)}
-                  className="relative w-10 h-[22px] rounded-full transition-colors duration-200"
-                  style={{ background: showCrossDoc ? "#6366f1" : "#e2e8f0" }}>
-                  <div className="absolute top-[3px] w-4 h-4 bg-white rounded-full transition-transform duration-200"
-                    style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transform: showCrossDoc ? "translateX(22px)" : "translateX(3px)" }} />
-                </button>
+                <ToggleSwitch on={showCrossDoc} onToggle={() => setShowCrossDoc(!showCrossDoc)} id={uid} />
               </div>
               {showCrossDoc && <UploadZone label="Upload Supporting Document" onFile={setSecondFile} file={secondFile} />}
               <div className="flex items-center justify-between">
                 <div>
                   <label className="text-sm font-medium" style={{ color: "#334155" }}>Face verification</label>
-                  <p className="text-[11px]" style={{ color: "#94a3b8" }}>Compare ID photo to a live selfie</p>
+                  <p className="text-[11px]" style={{ color: "#94a3b8" }}>Capture a live selfie to compare against ID photo</p>
                 </div>
-                <button onClick={() => setShowFaceMatch(!showFaceMatch)}
-                  className="relative w-10 h-[22px] rounded-full transition-colors duration-200"
-                  style={{ background: showFaceMatch ? "#6366f1" : "#e2e8f0" }}>
-                  <div className="absolute top-[3px] w-4 h-4 bg-white rounded-full transition-transform duration-200"
-                    style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transform: showFaceMatch ? "translateX(22px)" : "translateX(3px)" }} />
-                </button>
+                <ToggleSwitch on={showFaceMatch} onToggle={() => setShowFaceMatch(!showFaceMatch)} />
               </div>
-              <button onClick={handleVerify} disabled={!idFile}
+              <button onClick={handleVerifyClick} disabled={!idFile}
                 className="w-full py-3 rounded-[10px] text-white text-sm font-semibold transition-all duration-150"
                 style={idFile ? { background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)", boxShadow: "0 2px 8px rgba(79,70,229,0.25)" } : { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" }}>
-                Verify Document
+                {showFaceMatch ? "Next: Capture Selfie" : "Verify Document"}
               </button>
             </div>
             <p className="text-[12px] text-center mt-4 italic" style={{ color: "#94a3b8" }}>For demonstration purposes. No PII is stored.</p>
           </div>
         )}
 
-        {state === "scanning" && <ScanAnimation />}
-        {state === "result" && result && (
-          <>
-            <VerificationResultCard result={result} onReset={handleReset} />
-            {showFaceMatch && idFile && (
-              <div className="mt-5 bg-white animate-fade-in-up stagger-4" style={{ border: "1px solid #e2e8f0", borderRadius: 16, padding: 24, boxShadow: "0 1px 2px rgba(0,0,0,0.03), 0 4px 8px rgba(0,0,0,0.02)" }}>
-                <h3 style={{ color: "#64748b", letterSpacing: "1.2px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", marginBottom: 16 }}>Face Verification</h3>
-                <FaceMatch idImageFile={idFile} />
-              </div>
-            )}
-          </>
+        {/* ── SELFIE CAPTURE (before scanning) ── */}
+        {state === "selfie-capture" && (
+          <div className="max-w-lg mx-auto animate-fade-in-up">
+            <SelfieCaptureScreen onCapture={handleSelfieCaptured} onSkip={() => startVerification()} />
+          </div>
         )}
 
+        {/* ── SCANNING ── */}
+        {state === "scanning" && <ScanAnimation />}
+
+        {/* ── RESULTS ── */}
+        {state === "result" && result && (
+          <VerificationResultCard result={result} faceResult={faceResult} idFile={idFile} onReset={handleReset} />
+        )}
+
+        {/* ── ERROR ── */}
         {state === "error" && (
           <div className="max-w-sm mx-auto text-center py-16 animate-fade-in-up">
             <div className="w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-3" style={{ background: "#fef2f2" }}>
@@ -132,6 +207,107 @@ export default function Home() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+// ─── Toggle Switch ───────────────────────────────────────────────────────────
+function ToggleSwitch({ on, onToggle, id }: { on: boolean; onToggle: () => void; id?: string }) {
+  return (
+    <button id={id} onClick={onToggle}
+      className="relative w-10 h-[22px] rounded-full transition-colors duration-200"
+      style={{ background: on ? "#6366f1" : "#e2e8f0" }}>
+      <div className="absolute top-[3px] w-4 h-4 bg-white rounded-full transition-transform duration-200"
+        style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transform: on ? "translateX(22px)" : "translateX(3px)" }} />
+    </button>
+  );
+}
+
+// ─── Selfie Capture Screen ───────────────────────────────────────────────────
+function SelfieCaptureScreen({ onCapture, onSkip }: { onCapture: (dataUrl: string, blob: Blob) => void; onSkip: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [ready, setReady] = useState(false);
+  const [camError, setCamError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" } });
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setReady(true);
+        }
+      } catch {
+        setCamError("Camera access denied. Please allow camera permissions.");
+      }
+    })();
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach(t => t.stop()); };
+  }, []);
+
+  const capture = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    canvas.toBlob((blob) => {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      if (blob) onCapture(dataUrl, blob);
+    }, "image/jpeg", 0.9);
+  }, [onCapture]);
+
+  if (camError) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-[13px]" style={{ color: "#ef4444" }}>{camError}</p>
+        <button onClick={onSkip} className="mt-4 text-[12px] font-medium" style={{ color: "#6366f1" }}>Skip face verification</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="text-center">
+        <h2 className="text-lg font-bold" style={{ color: "#0f172a" }}>Capture Selfie</h2>
+        <p className="text-sm mt-1" style={{ color: "#64748b" }}>Position your face in the frame for identity comparison</p>
+      </div>
+
+      <div className="relative overflow-hidden mx-auto" style={{ maxWidth: 420, borderRadius: 16, border: "2px solid #e2e8f0", background: "#000" }}>
+        <video ref={videoRef} autoPlay playsInline muted className="w-full" style={{ transform: "scaleX(-1)", borderRadius: 14 }} />
+        {/* Face guide */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-44 h-56 border-2 border-dashed rounded-[40%] opacity-40" style={{ borderColor: "#6366f1" }} />
+        </div>
+        {!ready && (
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.8)" }}>
+            <div className="w-6 h-6 border-2 border-indigo-300 border-t-indigo-500 rounded-full animate-spin" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-center gap-3">
+        <button onClick={capture} disabled={!ready}
+          className="px-8 py-3 text-[13px] font-semibold text-white rounded-[10px] transition-all duration-150"
+          style={ready ? { background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)", boxShadow: "0 2px 8px rgba(79,70,229,0.25)" } : { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" }}>
+          Capture & Verify
+        </button>
+        <button onClick={onSkip} className="px-6 py-3 text-[13px] font-medium rounded-[10px] transition-colors"
+          style={{ color: "#64748b", border: "1px solid #e2e8f0" }}>
+          Skip
+        </button>
+      </div>
+
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

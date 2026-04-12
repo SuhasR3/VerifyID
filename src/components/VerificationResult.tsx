@@ -100,8 +100,16 @@ function Card({ children, className = "", accentColor }: { children: React.React
   );
 }
 
+// ─── Face Result type ────────────────────────────────────────────────────────
+interface FaceResult {
+  match: boolean;
+  distance: number;
+  confidence: number;
+  selfieDataUrl: string;
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
-export default function VerificationResultCard({ result, onReset }: { result: VR; onReset: () => void }) {
+export default function VerificationResultCard({ result, faceResult, idFile, onReset }: { result: VR; faceResult?: FaceResult | null; idFile?: File | null; onReset: () => void }) {
   const { overall, level1_authenticity: l1, level2_extraction: l2, level3_crossMatch: l3, level4_compliance: l4 } = result;
   const lr = overall.levelResults;
   const vid = `VRF-${Date.now().toString(36).toUpperCase().slice(-6)}`;
@@ -144,6 +152,62 @@ export default function VerificationResultCard({ result, onReset }: { result: VR
           <span>{((result.processingTime || 0) / 1000).toFixed(1)}s</span>
         </div>
       </div>
+
+      {/* ══ FACE VERIFICATION (right below verdict) ══ */}
+      {faceResult && (
+        <Card className="animate-fade-in-up stagger-1" accentColor={faceResult.match ? "#10b981" : "#ef4444"}>
+          <div className="flex items-center justify-between mb-3">
+            <SH>Face Verification</SH>
+            <StatusPill status={faceResult.match ? "pass" : "fail"} label={faceResult.match ? "MATCH" : "MISMATCH"} />
+          </div>
+          <div className="flex items-center gap-5">
+            {/* Photos side by side */}
+            <div className="flex gap-3 shrink-0">
+              <div className="text-center">
+                <p className="text-[10px] uppercase mb-1.5" style={{ color: "#94a3b8", letterSpacing: "1px" }}>Live Selfie</p>
+                <img src={faceResult.selfieDataUrl} alt="Selfie" className="w-[72px] h-[72px] rounded-xl object-cover"
+                  style={{ border: `2px solid ${faceResult.match ? "#10b981" : "#ef4444"}`, transform: "scaleX(-1)" }} />
+              </div>
+              {idFile && (
+                <div className="text-center">
+                  <p className="text-[10px] uppercase mb-1.5" style={{ color: "#94a3b8", letterSpacing: "1px" }}>ID Photo</p>
+                  <img src={URL.createObjectURL(idFile)} alt="ID" className="w-[72px] h-[72px] rounded-xl object-cover"
+                    style={{ border: `2px solid ${faceResult.match ? "#10b981" : "#ef4444"}` }} />
+                </div>
+              )}
+            </div>
+            {/* Scores */}
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ background: faceResult.match ? "#10b981" : "#ef4444" }}>
+                  {faceResult.match ? "✓" : "✗"}
+                </span>
+                <div>
+                  <p className="text-[15px] font-bold" style={{ color: "#0f172a" }}>
+                    {faceResult.match ? "Face Match Confirmed" : "Face Mismatch"}
+                  </p>
+                  <p className="text-[12px]" style={{ color: "#64748b" }}>
+                    Similarity: {Math.round(faceResult.confidence * 100)}% · Distance: {faceResult.distance}
+                  </p>
+                </div>
+              </div>
+              {/* Similarity bar */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px]" style={{ color: "#94a3b8" }}>Similarity</span>
+                <div className="flex-1 rounded overflow-hidden" style={{ background: "#f1f5f9", height: 8, borderRadius: 4 }}>
+                  <div className="h-full rounded animate-bar-grow" style={{
+                    width: `${Math.round(faceResult.confidence * 100)}%`,
+                    background: faceResult.match ? "linear-gradient(90deg, #10b981, #34d399)" : "linear-gradient(90deg, #ef4444, #f87171)",
+                    borderRadius: 4
+                  }} />
+                </div>
+                <span className="text-[12px] font-semibold font-mono-data" style={{ color: "#334155" }}>{Math.round(faceResult.confidence * 100)}%</span>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* ══ DATA + CHECKS ══ */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
