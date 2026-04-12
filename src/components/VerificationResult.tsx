@@ -106,6 +106,8 @@ interface FaceResult {
   distance: number;
   confidence: number;
   selfieDataUrl: string;
+  noFaceOnId?: boolean;
+  noFaceOnSelfie?: boolean;
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -185,10 +187,10 @@ export default function VerificationResultCard({ result, faceResult, idFile, onR
                 </span>
                 <div>
                   <p className="text-[15px] font-bold" style={{ color: "#0f172a" }}>
-                    {faceResult.match ? "Face Match Confirmed" : "Face Mismatch"}
+                    {faceResult.noFaceOnId ? "No Face Detected on ID" : faceResult.noFaceOnSelfie ? "No Face Detected in Selfie" : faceResult.match ? "Face Match Confirmed" : "Face Mismatch"}
                   </p>
                   <p className="text-[12px]" style={{ color: "#64748b" }}>
-                    Similarity: {Math.round(faceResult.confidence * 100)}% · Distance: {faceResult.distance}
+                    {faceResult.noFaceOnId ? "Ensure the ID photo is clearly visible and unobstructed" : faceResult.noFaceOnSelfie ? "Try again with better lighting and face centered in frame" : `Similarity: ${Math.round(faceResult.confidence * 100)}% · Distance: ${faceResult.distance}`}
                   </p>
                 </div>
               </div>

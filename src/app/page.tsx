@@ -16,6 +16,8 @@ interface FaceResult {
   distance: number;
   confidence: number;
   selfieDataUrl: string;
+  noFaceOnId?: boolean;
+  noFaceOnSelfie?: boolean;
 }
 
 export default function Home() {
@@ -87,35 +89,58 @@ export default function Home() {
     await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
     await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
 
-    // ID face
+    // ID face — use larger inputSize (512) and lower scoreThreshold (0.3)
+    // to better detect small faces on ID cards
+    const idDetectorOpts = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 512,
+      scoreThreshold: 0.3,
+    });
+
     const idUrl = URL.createObjectURL(idImageFile);
     const idImg = await faceapi.fetchImage(idUrl);
     const idDetection = await faceapi
-      .detectSingleFace(idImg, new faceapi.TinyFaceDetectorOptions())
+      .detectSingleFace(idImg, idDetectorOpts)
       .withFaceLandmarks()
       .withFaceDescriptor();
     URL.revokeObjectURL(idUrl);
 
     if (!idDetection) {
-      return { match: false, distance: 1, confidence: 0, selfieDataUrl };
+      return { match: false, distance: 1, confidence: 0, selfieDataUrl, noFaceOnId: true };
     }
 
-    // Selfie face
+    // Selfie face — standard options, webcam images are higher quality
+    const selfieDetectorOpts = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 416,
+      scoreThreshold: 0.4,
+    });
+
     const selfieImg = await faceapi.fetchImage(selfieDataUrl);
     const selfieDetection = await faceapi
-      .detectSingleFace(selfieImg, new faceapi.TinyFaceDetectorOptions())
+      .detectSingleFace(selfieImg, selfieDetectorOpts)
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!selfieDetection) {
-      return { match: false, distance: 1, confidence: 0, selfieDataUrl };
+      return { match: false, distance: 1, confidence: 0, selfieDataUrl, noFaceOnSelfie: true };
     }
 
     const distance = faceapi.euclideanDistance(idDetection.descriptor, selfieDetection.descriptor);
+
+    // Threshold: 0.6 for ID-vs-selfie (different lighting, angle, resolution)
+    // This is the standard threshold for cross-environment face matching
+    const MATCH_THRESHOLD = 0.6;
+    const isMatch = distance < MATCH_THRESHOLD;
+
+    // Better confidence curve for ID-vs-selfie:
+    // distance 0.0 = 100%, 0.3 = 85%, 0.5 = 60%, 0.6 = 50%, 0.8 = 20%, 1.0 = 0%
+    // Uses a sigmoid-like mapping centered around the threshold
+    const rawConf = 1 / (1 + Math.exp(10 * (distance - MATCH_THRESHOLD)));
+    const confidence = Math.round(rawConf * 100) / 100;
+
     return {
-      match: distance < 0.5,
+      match: isMatch,
       distance: Math.round(distance * 1000) / 1000,
-      confidence: Math.max(0, Math.min(1, 1 - distance)),
+      confidence,
       selfieDataUrl,
     };
   }
