@@ -4,22 +4,33 @@ export interface Level1Authenticity {
     documentLayout: "valid" | "invalid" | "suspicious";
     fontConsistency: "match" | "mismatch" | "unclear";
     fieldFormat: "valid" | "invalid" | "suspicious";
-    securityFeatures: "detected" | "not_detected" | "unclear";
-    barcodePresence: "present" | "absent" | "damaged";
+    securityFeatures: "detected" | "not_detected" | "unclear" | "photo_limited";
+    barcodePresence: "present" | "absent" | "damaged" | "not_applicable";
     photoQuality: "good" | "poor" | "acceptable";
     borderIntegrity: "intact" | "compromised" | "unclear";
   };
   flags: string[];
+  signalScores: {
+    templateConformance: number;
+    dataFieldValidity: number;
+    dataConsistency: number;
+    imageIntegrity: number;
+    securityFeaturePresence: number;
+  };
 }
 
 export interface Level2Extraction {
+  first_name: string | null;
+  last_name: string | null;
   name: string | null;
   dob: string | null;
   address: string | null;
   idNumber: string | null;
   expiration: string | null;
+  issue_date: string | null;
   idClass: string | null;
   state: string | null;
+  issuing_state: string | null;
   documentType:
     | "drivers_license"
     | "state_id"
@@ -35,6 +46,9 @@ export interface Level3CrossMatch {
   matches: { [field: string]: boolean };
   mismatches: {
     [field: string]: { idValue: string; docValue: string };
+  };
+  partialMatches?: {
+    [field: string]: { idValue: string; docValue: string; reason: string };
   };
   overallMatchScore: number;
 }

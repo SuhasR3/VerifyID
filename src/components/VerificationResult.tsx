@@ -16,8 +16,8 @@ function ConfidenceBadge({ value }: { value: number }) {
 }
 
 function CheckIcon({ passed }: { passed: boolean | string }) {
-  const ok = passed === true || passed === "valid" || passed === "match" || passed === "detected" || passed === "present" || passed === "good" || passed === "intact";
-  const warn = passed === "unclear" || passed === "acceptable" || passed === "suspicious" || passed === "damaged";
+  const ok = passed === true || passed === "valid" || passed === "match" || passed === "detected" || passed === "present" || passed === "good" || passed === "intact" || passed === "photo_limited";
+  const warn = passed === "unclear" || passed === "acceptable" || passed === "suspicious" || passed === "damaged" || passed === "not_applicable";
   if (ok)
     return <span className="text-green-500 font-bold">&#10003;</span>;
   if (warn)
@@ -69,12 +69,16 @@ export default function VerificationResultCard({ result }: { result: VR }) {
 
   const fieldLabels: Record<string, string> = {
     name: "Full Name",
+    first_name: "First Name",
+    last_name: "Last Name",
     dob: "Date of Birth",
     address: "Address",
     idNumber: "ID Number",
     expiration: "Expiration",
+    issue_date: "Issue Date",
     idClass: "Class",
     state: "State",
+    issuing_state: "Issuing State",
   };
 
   return (
@@ -131,6 +135,25 @@ export default function VerificationResultCard({ result }: { result: VR }) {
             ))}
           </div>
         )}
+        {level1_authenticity.signalScores && (
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <p className="text-xs font-semibold text-slate-500 mb-2">Signal Scores (weighted for verdict)</p>
+            <div className="space-y-1.5">
+              {Object.entries(level1_authenticity.signalScores).map(([key, val]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 w-40 capitalize">{key.replace(/([A-Z])/g, " $1").trim()}</span>
+                  <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${val >= 0.8 ? "bg-green-500" : val >= 0.5 ? "bg-yellow-500" : "bg-red-500"}`}
+                      style={{ width: `${Math.round(val * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400 w-10 text-right">{Math.round(val * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Level 2: Extracted Fields */}
@@ -139,7 +162,7 @@ export default function VerificationResultCard({ result }: { result: VR }) {
           Level 2 — Extracted Data
         </h3>
         <div className="space-y-2">
-          {(["name", "dob", "address", "idNumber", "expiration", "idClass", "state"] as const).map((field) => {
+          {(["name", "first_name", "last_name", "dob", "address", "idNumber", "expiration", "issue_date", "idClass", "state", "issuing_state"] as const).map((field) => {
             const value = level2_extraction[field];
             const conf = level2_extraction.confidence[field] ?? 0;
             if (value === null && conf === 0) return null;
@@ -172,6 +195,16 @@ export default function VerificationResultCard({ result }: { result: VR }) {
                 <CheckIcon passed={matched} />
               </div>
             ))}
+            {level3_crossMatch.partialMatches && Object.keys(level3_crossMatch.partialMatches).length > 0 && (
+              <div className="mt-2 p-3 bg-yellow-50 rounded-lg">
+                <p className="text-xs font-semibold text-yellow-700 mb-1">Partial Matches:</p>
+                {Object.entries(level3_crossMatch.partialMatches).map(([field, vals]) => (
+                  <p key={field} className="text-xs text-yellow-600">
+                    <strong>{field}:</strong> &quot;{vals.idValue}&quot; vs &quot;{vals.docValue}&quot; ({vals.reason})
+                  </p>
+                ))}
+              </div>
+            )}
             {Object.keys(level3_crossMatch.mismatches).length > 0 && (
               <div className="mt-2 p-3 bg-red-50 rounded-lg">
                 <p className="text-xs font-semibold text-red-700 mb-1">Mismatches:</p>
