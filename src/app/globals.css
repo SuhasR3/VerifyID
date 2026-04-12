@@ -15,7 +15,8 @@
 }
 
 body {
-  background: var(--background);
+  background: linear-gradient(180deg, #eef2ff 0%, #f1f5f9 30%, #f8fafc 100%);
+  background-attachment: fixed;
   color: var(--foreground);
   background-image: radial-gradient(circle at 1px 1px, rgba(148,163,184,0.06) 1px, transparent 0);
   background-size: 24px 24px;

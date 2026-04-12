@@ -155,13 +155,22 @@ export default function VerificationResultCard({ result, onReset }: { result: VR
             {(["name", "first_name", "last_name", "dob", "address", "idNumber", "expiration", "issue_date", "idClass", "state", "issuing_state"] as const).map((field) => {
               const value = l2[field]; const conf = l2.confidence?.[field] ?? 0;
               if (value === null && conf === 0) return null;
-              const useMono = ["dob", "idNumber", "expiration", "issue_date"].includes(field);
+              const isName = ["name", "first_name", "last_name"].includes(field);
+              const isDate = ["dob", "expiration", "issue_date"].includes(field);
+              const isIdNum = field === "idNumber";
+              const valStyle: React.CSSProperties = isName
+                ? { fontSize: 17, fontWeight: 600, letterSpacing: "0.01em", color: "#1e293b" }
+                : isDate
+                ? { fontSize: 16, fontWeight: 500, fontVariantNumeric: "tabular-nums", color: "#1e293b" }
+                : isIdNum
+                ? { fontSize: 16, fontWeight: 500, fontVariantNumeric: "tabular-nums", letterSpacing: "0.05em", color: "#1e293b" }
+                : { fontSize: 15, fontWeight: 500, color: "#334155" };
               return (
                 <div key={field} className="transition-transform duration-150 hover:-translate-y-px" style={{ background: "#f8fafc", borderRadius: 10, padding: "12px 16px" }}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <span style={{ fontSize: 11, textTransform: "uppercase", color: "#94a3b8", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{fieldLabels[field]}</span>
-                      <span className={useMono ? "font-mono-data" : ""} style={{ fontSize: 16, fontWeight: 600, color: "#0f172a", letterSpacing: useMono ? undefined : "0px", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || "—"}</span>
+                      <span style={{ ...valStyle, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || "—"}</span>
                     </div>
                     <ConfBadge value={conf} />
                   </div>
