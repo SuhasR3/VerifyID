@@ -69,6 +69,12 @@ export interface VerificationResult {
     verdict: "AUTHENTIC" | "SUSPICIOUS" | "FAKE";
     confidence: number;
     summary: string;
+    levelResults?: {
+      l1: boolean;
+      l2: boolean;
+      l3: boolean | null;
+      l4: boolean;
+    };
   };
   level1_authenticity: Level1Authenticity;
   level2_extraction: Level2Extraction;

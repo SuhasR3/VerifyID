@@ -180,8 +180,10 @@ Be thorough but CALIBRATED. Account for the inherent limitations of analyzing a 
 function computeVerdict(
   signalScores: Record<string, number>,
   compliance: Record<string, unknown>,
-  extraction: Record<string, unknown>
-): { verdict: "AUTHENTIC" | "SUSPICIOUS" | "FAKE"; confidence: number; } {
+  extraction: Record<string, unknown>,
+  l1: Record<string, unknown>,
+  crossMatch: Record<string, unknown> | null
+): { verdict: "AUTHENTIC" | "SUSPICIOUS" | "FAKE"; confidence: number; levelResults: { l1: boolean; l2: boolean; l3: boolean | null; l4: boolean } } {
   const weights = {
     templateConformance: 0.25,
     dataFieldValidity: 0.25,
@@ -202,7 +204,29 @@ function computeVerdict(
 
   let confidence = totalWeight > 0 ? weightedScore / totalWeight : 0.5;
 
-  // Hard failure caps from research
+  // ── Per-level pass/fail evaluation ──
+  const l1Passed = l1.passed === true;
+
+  // L2: passed if we extracted at least name + one other critical field with >0.5 confidence
+  const extractionConf = (extraction.confidence || {}) as Record<string, number>;
+  const l2Passed = (extractionConf.name ?? 0) > 0.4 && ((extractionConf.dob ?? 0) > 0.4 || (extractionConf.idNumber ?? 0) > 0.4);
+
+  // L3: if cross-doc was performed, check match score
+  let l3Passed: boolean | null = null;
+  if (crossMatch && crossMatch.performed) {
+    const matchScore = (crossMatch.overallMatchScore as number) ?? 0;
+    const mismatches = crossMatch.mismatches as Record<string, unknown> || {};
+    const mismatchCount = Object.keys(mismatches).length;
+    l3Passed = matchScore >= 0.6 && mismatchCount <= 1;
+  }
+
+  // L4: compliance pass — not expired AND meets notary standards
+  const l4Passed = !compliance.isExpired && !compliance.belowNotaryStandards;
+
+  // ── Hard failure caps: if ANY level fails, cannot be AUTHENTIC ──
+  const anyLevelFailed = !l1Passed || !l2Passed || (l3Passed === false) || !l4Passed;
+
+  // ID number format validation
   const idNumber = extraction.idNumber as string | null;
   const state = extraction.state as string | null;
   if (idNumber && state) {
@@ -210,9 +234,21 @@ function computeVerdict(
     if (!formatValid) confidence = Math.min(confidence, 0.40);
   }
 
-  // Expired ID doesn't change authenticity — but caps below "AUTHENTIC"
+  // Cross-match penalty: low match score drags down confidence
+  if (crossMatch && crossMatch.performed) {
+    const matchScore = (crossMatch.overallMatchScore as number) ?? 0.5;
+    // Blend cross-match into confidence (20% weight)
+    confidence = confidence * 0.80 + matchScore * 0.20;
+  }
+
+  // Expired ID: real document but compliance failure — cap at SUSPICIOUS
   if (compliance.isExpired) {
-    // ID is real but expired — still authentic document, flag compliance
+    confidence = Math.min(confidence, 0.70);
+  }
+
+  // The key rule: if any level fails, cap below AUTHENTIC threshold
+  if (anyLevelFailed) {
+    confidence = Math.min(confidence, 0.77);
   }
 
   let verdict: "AUTHENTIC" | "SUSPICIOUS" | "FAKE";
@@ -220,7 +256,11 @@ function computeVerdict(
   else if (confidence >= 0.50) verdict = "SUSPICIOUS";
   else verdict = "FAKE";
 
-  return { verdict, confidence: Math.round(confidence * 100) / 100 };
+  return {
+    verdict,
+    confidence: Math.round(confidence * 100) / 100,
+    levelResults: { l1: l1Passed, l2: l2Passed, l3: l3Passed, l4: l4Passed },
+  };
 }
 
 function validateIdFormat(idNumber: string, state: string): boolean {
@@ -340,16 +380,23 @@ export async function verifyID(
   const signalScores = (l1.signalScores || {}) as Record<string, number>;
   const l4 = parsed.level4_compliance as Record<string, unknown> || {};
   const l2 = parsed.level2_extraction as Record<string, unknown> || {};
+  const l3 = (parsed.level3_crossMatch as Record<string, unknown>) || null;
 
-  const { verdict, confidence } = computeVerdict(signalScores, l4, l2);
+  const { verdict, confidence, levelResults } = computeVerdict(signalScores, l4, l2, l1, l3);
 
   // Build summary
   const docTypeLabel = (l2.documentType as string || "document").replace(/_/g, " ");
   const stateLabel = l2.state || classification.state || "";
   const summaryParts: string[] = [];
-  if (verdict === "AUTHENTIC") summaryParts.push(`This ${stateLabel ? stateLabel + " " : ""}${docTypeLabel} passes all applicable authenticity checks.`);
-  else if (verdict === "SUSPICIOUS") summaryParts.push(`This ${stateLabel ? stateLabel + " " : ""}${docTypeLabel} has elements requiring further review.`);
-  else summaryParts.push(`This document fails multiple authenticity checks.`);
+  if (verdict === "AUTHENTIC") summaryParts.push(`This ${stateLabel ? stateLabel + " " : ""}${docTypeLabel} passes all applicable verification levels.`);
+  else if (verdict === "SUSPICIOUS") {
+    const failedLevels: string[] = [];
+    if (!levelResults.l1) failedLevels.push("authenticity");
+    if (!levelResults.l2) failedLevels.push("data extraction");
+    if (levelResults.l3 === false) failedLevels.push("cross-document match");
+    if (!levelResults.l4) failedLevels.push("compliance");
+    summaryParts.push(`This ${stateLabel ? stateLabel + " " : ""}${docTypeLabel} requires review${failedLevels.length ? ": " + failedLevels.join(", ") + " flagged" : ""}.`);
+  } else summaryParts.push(`This document fails multiple verification checks.`);
 
   if (l4.isExpired) summaryParts.push("The document is expired.");
   else if (l4.expiryStatus === "expiring_soon") summaryParts.push(`Expiring within ${l4.daysUntilExpiry} days.`);
@@ -359,6 +406,7 @@ export async function verifyID(
       verdict,
       confidence,
       summary: summaryParts.join(" "),
+      levelResults,
     },
     level1_authenticity: parsed.level1_authenticity as VerificationResult["level1_authenticity"],
     level2_extraction: parsed.level2_extraction as VerificationResult["level2_extraction"],
