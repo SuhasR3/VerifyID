@@ -155,12 +155,13 @@ export default function VerificationResultCard({ result, onReset }: { result: VR
             {(["name", "first_name", "last_name", "dob", "address", "idNumber", "expiration", "issue_date", "idClass", "state", "issuing_state"] as const).map((field) => {
               const value = l2[field]; const conf = l2.confidence?.[field] ?? 0;
               if (value === null && conf === 0) return null;
+              const useMono = ["dob", "idNumber", "expiration", "issue_date"].includes(field);
               return (
                 <div key={field} className="transition-transform duration-150 hover:-translate-y-px" style={{ background: "#f8fafc", borderRadius: 10, padding: "12px 16px" }}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <span style={{ fontSize: 11, textTransform: "uppercase", color: "#94a3b8", letterSpacing: "0.5px", marginBottom: 4, display: "block" }}>{fieldLabels[field]}</span>
-                      <span className="font-mono-data font-semibold block truncate" style={{ fontSize: 15, color: "#0f172a" }}>{value || "—"}</span>
+                      <span className={useMono ? "font-mono-data" : ""} style={{ fontSize: 16, fontWeight: 600, color: "#0f172a", letterSpacing: useMono ? undefined : "0px", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || "—"}</span>
                     </div>
                     <ConfBadge value={conf} />
                   </div>
