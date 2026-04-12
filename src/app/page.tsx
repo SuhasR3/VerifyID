@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useId } from "react";
+import dynamic from "next/dynamic";
 import UploadZone from "@/components/UploadZone";
 import ScanAnimation from "@/components/ScanAnimation";
 import VerificationResultCard from "@/components/VerificationResult";
 import { VerificationResult } from "@/lib/types";
+
+const FaceMatch = dynamic(() => import("@/components/FaceMatch"), { ssr: false });
 
 type AppState = "upload" | "scanning" | "result" | "error";
 
@@ -13,6 +16,7 @@ export default function Home() {
   const [idFile, setIdFile] = useState<File | null>(null);
   const [secondFile, setSecondFile] = useState<File | null>(null);
   const [result, setResult] = useState<VerificationResult | null>(null);
+  const [showFaceMatch, setShowFaceMatch] = useState(false);
   const [error, setError] = useState<string>("");
   const [showCrossDoc, setShowCrossDoc] = useState(false);
   const uid = useId();
@@ -39,7 +43,7 @@ export default function Home() {
   }
 
   function handleReset() {
-    setState("upload"); setIdFile(null); setSecondFile(null); setResult(null); setError(""); setShowCrossDoc(false);
+    setState("upload"); setIdFile(null); setSecondFile(null); setResult(null); setError(""); setShowCrossDoc(false); setShowFaceMatch(false);
   }
 
   return (
@@ -81,6 +85,18 @@ export default function Home() {
                 </button>
               </div>
               {showCrossDoc && <UploadZone label="Upload Supporting Document" onFile={setSecondFile} file={secondFile} />}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-medium" style={{ color: "#334155" }}>Face verification</label>
+                  <p className="text-[11px]" style={{ color: "#94a3b8" }}>Compare ID photo to a live selfie</p>
+                </div>
+                <button onClick={() => setShowFaceMatch(!showFaceMatch)}
+                  className="relative w-10 h-[22px] rounded-full transition-colors duration-200"
+                  style={{ background: showFaceMatch ? "#6366f1" : "#e2e8f0" }}>
+                  <div className="absolute top-[3px] w-4 h-4 bg-white rounded-full transition-transform duration-200"
+                    style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transform: showFaceMatch ? "translateX(22px)" : "translateX(3px)" }} />
+                </button>
+              </div>
               <button onClick={handleVerify} disabled={!idFile}
                 className="w-full py-3 rounded-[10px] text-white text-sm font-semibold transition-all duration-150"
                 style={idFile ? { background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)", boxShadow: "0 2px 8px rgba(79,70,229,0.25)" } : { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" }}>
@@ -92,7 +108,17 @@ export default function Home() {
         )}
 
         {state === "scanning" && <ScanAnimation />}
-        {state === "result" && result && <VerificationResultCard result={result} onReset={handleReset} />}
+        {state === "result" && result && (
+          <>
+            <VerificationResultCard result={result} onReset={handleReset} />
+            {showFaceMatch && idFile && (
+              <div className="mt-5 bg-white animate-fade-in-up stagger-4" style={{ border: "1px solid #e2e8f0", borderRadius: 16, padding: 24, boxShadow: "0 1px 2px rgba(0,0,0,0.03), 0 4px 8px rgba(0,0,0,0.02)" }}>
+                <h3 style={{ color: "#64748b", letterSpacing: "1.2px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", marginBottom: 16 }}>Face Verification</h3>
+                <FaceMatch idImageFile={idFile} />
+              </div>
+            )}
+          </>
+        )}
 
         {state === "error" && (
           <div className="max-w-sm mx-auto text-center py-16 animate-fade-in-up">
