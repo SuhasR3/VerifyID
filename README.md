@@ -8,6 +8,8 @@ Built for VillageHacks 2026. See [Scope](#scope) for what is production-ready.
 
 **Demo:** [link](https://www.youtube.com/watch?v=4z_sjcKUTc8)
 
+**Live on:** [link](https://verifyid.vercel.app/)
+
 ---
 
 ## What makes this interesting
