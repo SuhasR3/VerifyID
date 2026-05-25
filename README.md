@@ -6,13 +6,13 @@ Upload a government-issued ID and get an instant authenticity verdict, extracted
 
 Built for VillageHacks 2026. See [Scope](#scope) for what is production-ready.
 
-**Demo:** [link](https://www.youtube.com/watch?v=4z_sjcKUTc8)
-
-**Live on:** [link](https://verifyid.vercel.app/)
-
 ---
 
 <img width="800" height="450" alt="demo" src="https://github.com/user-attachments/assets/bcb9a1e6-e4e5-4537-92f9-74f2af891d9f" />
+
+**Full Video:** [link](https://www.youtube.com/watch?v=4z_sjcKUTc8)
+
+**App Live Link:** [link](https://verifyid.vercel.app/)
 
 ---
 
