@@ -12,6 +12,10 @@ Built for VillageHacks 2026. See [Scope](#scope) for what is production-ready.
 
 ---
 
+<img width="800" height="450" alt="demo" src="https://github.com/user-attachments/assets/bcb9a1e6-e4e5-4537-92f9-74f2af891d9f" />
+
+---
+
 ## What makes this interesting
 
 **Hybrid AI + deterministic architecture.** The LLM extracts signals. Code computes the verdict. Five weighted signals are aggregated in TypeScript with hard caps for expired IDs, invalid state-specific ID number formats, and per-level failures. The model cannot hallucinate a passing score.
