@@ -1,10 +1,9 @@
 # VerifyID
 
 **AI-powered identity document verification for notarial compliance.**
+> 🏆 Winner · VillageHacks 2026 · Arizona State University
 
-Upload a government-issued ID and get an instant authenticity verdict, extracted data fields with per-field confidence scores, and compliance flags against RULONA, NIST IAL2, and MISMO standards. Cross-reference a second document or verify a live selfie against the ID photo, with biometric matching running entirely in-browser.
-
-Built for VillageHacks 2026. See [Scope](#scope) for what is production-ready.
+Upload a government-issued ID and get an instant authenticity verdict, extracted data fields with per-field confidence scores, and compliance flags against RULONA, NIST IAL2, and MISMO standards. Cross-reference a second document or verify a live selfie against the ID photo, with biometric matching running entirely in-browser. See [Scope](#scope) for what is production-ready.
 
 ---
 
