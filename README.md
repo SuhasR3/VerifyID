@@ -134,9 +134,3 @@ src/
 public/
 └── models/                       # face-api.js model weights
 ```
-
----
-
-## License
-
-MIT
